@@ -20,15 +20,21 @@ struct Diagnostic {
   Severity severity = Severity::Error;
   SourceLoc loc;
   std::string message;
+
+  // Codes like E001 come from section 8 of the spec. Empty for the
+  // parser, its errors are syntax and the spec codes are about names and
+  // types.
+  std::string code;
 };
-// The spec has error codes (E001 and friends) but those are mostly about
-// types and everything here is syntax so far. Adding them once sema is
-// a thing.
+
+// Diagnostics can carry one of the spec's error codes. The parser doesn't
+// use them, sema does.
 class Diagnostics {
 public:
   explicit Diagnostics(const SourceFile &file) : file_(&file) {}
 
   void error(SourceLoc loc, std::string message);
+  void error(SourceLoc loc, std::string code, std::string message);
   void warning(SourceLoc loc, std::string message);
 
   bool hasErrors() const;
