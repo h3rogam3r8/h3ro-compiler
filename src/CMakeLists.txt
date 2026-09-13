@@ -4,6 +4,7 @@ add_library(hero_frontend
   ASTPrinter.cpp
   SourceFile.cpp
   Diagnostics.cpp
+  Sema.cpp
 )
 
 target_include_directories(hero_frontend
