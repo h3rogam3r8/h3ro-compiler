@@ -2,11 +2,10 @@
 // handling is the same shape as the one in Alpha, just smaller.
 
 #include "hero/ASTPrinter.h"
-#include "hero/Parser.h"
-#include "hero/SourceFile.h"
-
 #include "hero/Lexer.h"
-
+#include "hero/Parser.h"
+#include "hero/Sema.h"
+#include "hero/SourceFile.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -74,6 +73,14 @@ int main(int argc, char **argv) {
   auto program = parser.parse();
   if (!program) {
     parser.diags().print(std::cerr);
+    return 1;
+  }
+
+  // Names get resolved before anything gets printed. A tree full of
+  // undefined names isn't worth emitting.
+  hero::Sema sema(file);
+  if (!sema.check(*program)) {
+    sema.diags().print(std::cerr);
     return 1;
   }
 
