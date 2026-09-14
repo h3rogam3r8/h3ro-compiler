@@ -20,6 +20,7 @@ void PrintTo(const ExprKind &kind, std::ostream *os) {
   case ExprKind::Unary:    *os << "unary";         break;
   case ExprKind::Binary:   *os << "binary";        break;
   case ExprKind::Call:     *os << "call";          break;
+  case ExprKind::Cast:     *os << "cast";          break;
   }
 }
 

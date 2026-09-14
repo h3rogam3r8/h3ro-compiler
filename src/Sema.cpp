@@ -6,8 +6,8 @@
 namespace hero {
 namespace {
 
-
-// cast is missing on purpose, see issue #13. 
+// cast isn't here because it isn't a call any more, the parser gives it
+// its own node kind.
 bool isBuiltin(const std::string &name) {
   static const std::unordered_set<std::string> builtins = {
       "matmul", "transpose", "sum",  "max",  "exp",
@@ -69,10 +69,12 @@ void Sema::checkExpr(const Expr &expr) {
       diags_.error(expr.loc, "E001", "nothing named " + expr.text + " here");
     break;
 
-  case ExprKind::Unary:
-    if (expr.lhs)
-      checkExpr(*expr.lhs);
-    break;
+    case ExprKind::Unary:
+    case ExprKind::Cast:
+        // Cast keeps its operand in lhs, same as unary minus. 
+        if (expr.lhs)
+            checkExpr(*expr.lhs);
+        break;
 
   case ExprKind::Binary:
     if (expr.lhs)

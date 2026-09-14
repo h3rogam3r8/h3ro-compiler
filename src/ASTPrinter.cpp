@@ -35,6 +35,10 @@ void printExpr(const Expr &e, std::ostream &os, int depth) {
     printExpr(*e.lhs, os, depth + 1);
     printExpr(*e.rhs, os, depth + 1);
     break;
+  case ExprKind::Cast:
+    os << "cast to " << tokenKindName(e.castTo) << "\n";
+    printExpr(*e.lhs, os, depth + 1);
+    break;
   case ExprKind::Call:
     os << "call " << e.text << "\n";
     for (const ExprPtr &arg : e.args)
