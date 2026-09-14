@@ -65,6 +65,10 @@ struct Expr {
   // Worked out by sema, not the parser. Unknown means either sema hasn't
   // run or it gave up on this subtree.
   TokenKind dtype = TokenKind::Unknown;
+
+  // Also from sema
+  bool shapeKnown = false;
+  std::vector<Dim> dims;
 };
 
 struct LetStmt {

@@ -12,19 +12,23 @@
 namespace hero {
 
 // What sema works out about one expression.
-struct DtypeInfo {
+struct TypeInfo {
   // False means something already went wrong and got reported. Callers
   // should go quiet instead of piling more errors on top.
   bool known = false;
 
-  // A bare number literal that hasn't committed to a dtype yet. 
+  // A bare number literal that hasn't committed to a dtype yet.
   bool flexible = false;
 
   TokenKind dtype = TokenKind::Unknown;
+
+  // Shapes are worked out separately from dtypes, and a few ops don't
+  // have a shape rule yet so this can be false for now.
+  bool shapeKnown = false;
+  std::vector<Dim> dims; 
 };
 
-// Semantic analysis. Resolves names and works out dtypes. Shapes are
-// still to come.
+// Semantic analysis. Resolves names, works out dtypes and broadcasts shapes.
 class Sema {
 public:
   explicit Sema(const SourceFile &file);
@@ -37,17 +41,17 @@ public:
 
 private:
   void checkFunction(Function &fn);
-  DtypeInfo checkBlock(Block &block);
-  DtypeInfo checkExpr(Expr &expr);
-  DtypeInfo computeExpr(Expr &expr);
-  DtypeInfo checkBinary(Expr &expr);
-  DtypeInfo checkCall(Expr &expr);
+  TypeInfo checkBlock(Block &block);
+  TypeInfo checkExpr(Expr &expr);
+  TypeInfo computeExpr(Expr &expr);
+  TypeInfo checkBinary(Expr &expr);
+  TypeInfo checkCall(Expr &expr);
 
-  bool declare(const std::string &name, SourceLoc loc, TokenKind dtype);
+  bool declare(const std::string &name, SourceLoc loc, const TypeInfo &type);
 
   struct Binding {
     SourceLoc loc;
-    TokenKind dtype = TokenKind::Unknown;
+    TypeInfo type;
   };
 
   // What a user defined function looks like from the outside.

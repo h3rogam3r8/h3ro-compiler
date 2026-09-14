@@ -1,5 +1,6 @@
 #include "hero/Sema.h"
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 
@@ -57,6 +58,68 @@ bool literalFits(TokenKind literalDefault, TokenKind target) {
   return isNumericDtype(target);
 }
 
+// Can we prove these two dimensions are the same number?
+bool dimsMatch(const Dim &a, const Dim &b) {
+  if (a.isSymbol != b.isSymbol)
+    return false;
+  if (a.isSymbol)
+    return a.symbol == b.symbol;
+  return a.size == b.size;
+}
+
+bool dimIsOne(const Dim &d) { return !d.isSymbol && d.size == 1; }
+
+// Line the shapes up from the right, a missing
+// leading dimension counts as 1, and a 1 stretches to meet anything.
+bool broadcastShapes(const std::vector<Dim> &a, const std::vector<Dim> &b,
+                     std::vector<Dim> &out) {
+  const size_t rank = std::max(a.size(), b.size());
+  out.assign(rank, Dim{});
+
+  for (size_t i = 0; i < rank; i++) {
+    Dim one;
+    one.size = 1;
+
+    const Dim &da = i < a.size() ? a[a.size() - 1 - i] : one;
+    const Dim &db = i < b.size() ? b[b.size() - 1 - i] : one;
+
+    if (dimsMatch(da, db))
+      out[rank - 1 - i] = da;
+    else if (dimIsOne(da))
+      out[rank - 1 - i] = db;
+    else if (dimIsOne(db))
+      out[rank - 1 - i] = da;
+    else
+      return false;
+  }
+
+  return true;
+}
+
+std::string shapeToString(const std::vector<Dim> &dims) {
+  if (dims.empty())
+    return "a scalar";
+
+  std::string out = "[";
+  for (size_t i = 0; i < dims.size(); i++) {
+    if (i > 0)
+      out += ", ";
+    out += dims[i].isSymbol ? dims[i].symbol : std::to_string(dims[i].size);
+  }
+  return out + "]";
+}
+
+// Literals and anything rank 0. Known shape, no dims.
+TypeInfo scalar(bool flexible, TokenKind dtype) {
+  TypeInfo t;
+  t.known = true;
+  t.flexible = flexible;
+  t.dtype = dtype;
+  t.shapeKnown = true;
+  return t;
+}
+
+
 std::string plural(int n, const char *word) {
   return std::to_string(n) + " " + word + (n == 1 ? "" : "s");
 }
@@ -87,10 +150,16 @@ bool Sema::check(Program &program) {
 void Sema::checkFunction(Function &fn) {
   scope_.clear();
 
-  for (Param &p : fn.params)
-    declare(p.name, p.loc, p.type.dtype);
+  for (Param &p : fn.params) {
+    TypeInfo t;
+    t.known = true;
+    t.dtype = p.type.dtype;
+    t.shapeKnown = true;
+    t.dims = p.type.dims;
+    declare(p.name, p.loc, t);
+  }
 
-  DtypeInfo body = checkBlock(fn.body);
+  TypeInfo body = checkBlock(fn.body);
   if (!body.known || !fn.body.result)
     return;
 
@@ -106,26 +175,49 @@ void Sema::checkFunction(Function &fn) {
     return;
   }
 
-  if (body.dtype != want) {
+    if (body.dtype != want) {
     diags_.error(fn.body.result->loc, "E005",
                  std::string("function says it returns ") +
                      tokenKindName(want) + " but the body produces " +
                      tokenKindName(body.dtype));
+    return;
+  }
+
+  // Shape too, when we actually worked one out. Plenty of bodies still
+  // come back unknown because matmul has no shape rule yet.
+  if (!body.shapeKnown)
+    return;
+
+  if (body.dims.size() != fn.returnType.dims.size()) {
+    diags_.error(fn.body.result->loc, "E006",
+                 "function says it returns " +
+                     shapeToString(fn.returnType.dims) +
+                     " but the body produces " + shapeToString(body.dims));
+    return;
+  }
+
+  for (size_t i = 0; i < body.dims.size(); i++) {
+    if (!dimsMatch(body.dims[i], fn.returnType.dims[i])) {
+      diags_.error(fn.body.result->loc, "E006",
+                   "function says it returns " +
+                       shapeToString(fn.returnType.dims) +
+                       " but the body produces " + shapeToString(body.dims));
+      return;
+    }
   }
 }
 
-DtypeInfo Sema::checkBlock(Block &block) {
+TypeInfo Sema::checkBlock(Block &block) {
   for (LetStmt &stmt : block.lets) {
-    DtypeInfo value;
+    TypeInfo value;
 
     // Value first so that let a = a; is an error instead of quietly
     // resolving to itself.
     if (stmt.value)
       value = checkExpr(*stmt.value);
 
-    // A let that's just a bare number settles on the literal's default,
-    // since there's nothing else around to take a dtype from.
-    declare(stmt.name, stmt.loc, value.known ? value.dtype : TokenKind::Unknown);
+    value.flexible = false;
+    declare(stmt.name, stmt.loc, value);
   }
 
   if (block.result)
@@ -134,36 +226,36 @@ DtypeInfo Sema::checkBlock(Block &block) {
   return {};
 }
 
-DtypeInfo Sema::checkExpr(Expr &expr) {
-  DtypeInfo out = computeExpr(expr);
+TypeInfo Sema::checkExpr(Expr &expr) {
+  TypeInfo out = computeExpr(expr);
   expr.dtype = out.dtype;
+  expr.shapeKnown = out.shapeKnown;
+  expr.dims = out.dims;
   return out;
 }
 
-DtypeInfo Sema::computeExpr(Expr &expr) {
+TypeInfo Sema::computeExpr(Expr &expr) {
   switch (expr.kind) {
   case ExprKind::IntLit:
-    return {true, true, TokenKind::KwI32};
+    return scalar(true, TokenKind::KwI32);
 
   case ExprKind::FloatLit:
-    return {true, true, TokenKind::KwF32};
+    return scalar(true, TokenKind::KwF32);
 
   case ExprKind::BoolLit:
-    return {true, false, TokenKind::KwBool};
+    return scalar(false, TokenKind::KwBool);
 
-  case ExprKind::Name: {
+  case ExprKind::Name:{
     auto it = scope_.find(expr.text);
     if (it == scope_.end()) {
       diags_.error(expr.loc, "E001", "nothing named " + expr.text + " here");
       return {};
     }
-    if (it->second.dtype == TokenKind::Unknown)
-      return {};
-    return {true, false, it->second.dtype};
+    return it->second.type;
   }
 
   case ExprKind::Unary: {
-    DtypeInfo operand = expr.lhs ? checkExpr(*expr.lhs) : DtypeInfo{};
+    TypeInfo operand = expr.lhs ? checkExpr(*expr.lhs) : TypeInfo{};
     if (!operand.known)
       return {};
 
@@ -175,10 +267,14 @@ DtypeInfo Sema::computeExpr(Expr &expr) {
   }
 
   case ExprKind::Cast: {
-    DtypeInfo operand = expr.lhs ? checkExpr(*expr.lhs) : DtypeInfo{};
+    TypeInfo operand = expr.lhs ? checkExpr(*expr.lhs) : TypeInfo{};
     if (!operand.known)
       return {};
-    return {true, false, expr.castTo};
+
+    TypeInfo out = operand;
+    out.flexible = false;
+    out.dtype = expr.castTo;
+    return out;
   }
 
   case ExprKind::Binary:
@@ -191,9 +287,9 @@ DtypeInfo Sema::computeExpr(Expr &expr) {
   return {};
 }
 
-DtypeInfo Sema::checkBinary(Expr &expr) {
-  DtypeInfo l = expr.lhs ? checkExpr(*expr.lhs) : DtypeInfo{};
-  DtypeInfo r = expr.rhs ? checkExpr(*expr.rhs) : DtypeInfo{};
+TypeInfo Sema::checkBinary(Expr &expr) {
+  TypeInfo l = expr.lhs ? checkExpr(*expr.lhs) : TypeInfo{};
+  TypeInfo r = expr.rhs ? checkExpr(*expr.rhs) : TypeInfo{};
   if (!l.known || !r.known)
     return {};
 
@@ -203,16 +299,18 @@ DtypeInfo Sema::checkBinary(Expr &expr) {
     return {};
   }
 
+  TypeInfo out;
+  out.known = true;
+
   // Two bare numbers with nothing to take a dtype from. Stay flexible in
   // case the whole thing gets combined with something typed later.
   if (l.flexible && r.flexible) {
     const bool anyFloat = isFloatDtype(l.dtype) || isFloatDtype(r.dtype);
-    return {true, true, anyFloat ? TokenKind::KwF32 : TokenKind::KwI32};
-  }
-
-  if (l.flexible || r.flexible) {
-    const DtypeInfo &lit = l.flexible ? l : r;
-    const DtypeInfo &fixed = l.flexible ? r : l;
+    out.flexible = true;
+    out.dtype = anyFloat ? TokenKind::KwF32 : TokenKind::KwI32;
+  } else if (l.flexible || r.flexible) {
+    const TypeInfo &lit = l.flexible ? l : r;
+    const TypeInfo &fixed = l.flexible ? r : l;
 
     if (!literalFits(lit.dtype, fixed.dtype)) {
       diags_.error(expr.loc, "E005",
@@ -221,30 +319,42 @@ DtypeInfo Sema::checkBinary(Expr &expr) {
                        tokenKindName(fixed.dtype));
       return {};
     }
-    return {true, false, fixed.dtype};
-  }
-
-  if (l.dtype != r.dtype) {
+    out.dtype = fixed.dtype;
+  } else if (l.dtype != r.dtype) {
     diags_.error(expr.loc, "E005",
                  std::string("these are ") + tokenKindName(l.dtype) + " and " +
                      tokenKindName(r.dtype) +
                      ", the spec has no implicit conversion so one of them "
                      "needs a cast");
     return {};
+  } else {
+    out.dtype = l.dtype;
   }
 
-  return {true, false, l.dtype};
+  // Shapes are independent of all that.
+  if (!l.shapeKnown || !r.shapeKnown)
+    return out;
+
+  if (!broadcastShapes(l.dims, r.dims, out.dims)) {
+    diags_.error(expr.loc, "E006",
+                 shapeToString(l.dims) + " and " + shapeToString(r.dims) +
+                     " don't broadcast together");
+    return {};
+  }
+
+  out.shapeKnown = true;
+  return out;
 }
 
-DtypeInfo Sema::checkCall(Expr &expr) {
+TypeInfo Sema::checkCall(Expr &expr) {
   const Builtin *builtin = findBuiltin(expr.text);
   auto userFn = functions_.find(expr.text);
   const bool isUser = userFn != functions_.end();
 
   // Arguments get checked either way so their names still get resolved.
-  std::vector<DtypeInfo> args;
+  std::vector<TypeInfo> args;
   for (ExprPtr &arg : expr.args)
-    args.push_back(arg ? checkExpr(*arg) : DtypeInfo{});
+    args.push_back(arg ? checkExpr(*arg) : TypeInfo{});
 
   if (!builtin && !isUser) {
     diags_.error(expr.loc, "E003",
@@ -262,7 +372,7 @@ DtypeInfo Sema::checkCall(Expr &expr) {
     return {};
   }
 
-  for (const DtypeInfo &a : args) {
+  for (const TypeInfo &a : args) {
     if (!a.known)
       return {};
   }
@@ -289,7 +399,10 @@ DtypeInfo Sema::checkCall(Expr &expr) {
         return {};
       }
     }
-    return {true, false, userFn->second.returns};
+    TypeInfo out;
+    out.known = true;
+    out.dtype = userFn->second.returns;
+    return out;
   }
 
   // A builtin's result takes the dtype of its first argument. A bare
@@ -321,10 +434,33 @@ DtypeInfo Sema::checkCall(Expr &expr) {
     return {};
   }
 
-  return {true, false, result};
+  TypeInfo out;
+  out.known = true;
+  out.dtype = result;
+
+  // Shape rules, for the builtins that have one written. transpose flips
+  // a rank 2 tensor, the elementwise ones keep whatever they were given.
+  if (expr.text == "transpose") {
+    if (args[0].shapeKnown) {
+      if (args[0].dims.size() != 2) {
+        diags_.error(expr.loc, "E007",
+                     "transpose needs a rank 2 tensor, this is " +
+                         shapeToString(args[0].dims));
+        return {};
+      }
+      out.shapeKnown = true;
+      out.dims = {args[0].dims[1], args[0].dims[0]};
+    }
+  } else if (builtin->arity == 1) {
+    out.shapeKnown = args[0].shapeKnown;
+    out.dims = args[0].dims;
+  }
+
+  return out;
 }
 
-bool Sema::declare(const std::string &name, SourceLoc loc, TokenKind dtype) {
+bool Sema::declare(const std::string &name, SourceLoc loc,
+                   const TypeInfo &type) {
   auto it = scope_.find(name);
   if (it != scope_.end()) {
     diags_.error(loc, "E002",
@@ -335,7 +471,7 @@ bool Sema::declare(const std::string &name, SourceLoc loc, TokenKind dtype) {
 
   Binding b;
   b.loc = loc;
-  b.dtype = dtype;
+  b.type = type;
   scope_.emplace(name, b);
   return true;
 }
