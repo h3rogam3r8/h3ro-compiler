@@ -177,3 +177,25 @@ TEST(Sema, RenderedErrorLooksLikeACompilerError) {
             "fn f() -> f32 { nope }\n"
             "                ^\n");
 }
+
+TEST(Sema, CastResolves) {
+  Checked r = check("fn f(x: f16) -> f32 { cast(x, f32) }");
+  EXPECT_TRUE(r.ok) << r.output;
+}
+
+TEST(Sema, NamesInsideACastAreChecked) {
+  Checked r = check("fn f() -> f32 { cast(nope, f32) }");
+  EXPECT_FALSE(r.ok);
+  EXPECT_NE(r.output.find("E001"), std::string::npos) << r.output;
+}
+
+TEST(Sema, TheMixedPrecisionExamplePasses) {
+  Checked r = check(
+      "fn mixed(x: tensor<[B, 128], f16>,\n"
+      "         w: tensor<[128, 64], f16>) -> tensor<[B, 64], f16>\n"
+      "{\n"
+      "    let acc = cast(matmul(x, w), f32);\n"
+      "    cast(relu(acc), f16)\n"
+      "}\n");
+  EXPECT_TRUE(r.ok) << r.output;
+}
