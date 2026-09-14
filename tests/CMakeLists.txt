@@ -20,6 +20,7 @@ add_executable(hero_tests
   ParserErrorTest.cpp
   TokenPrinterTest.cpp
   SemaTest.cpp
+  SemaTypeTest.cpp
 )
 target_link_libraries(hero_tests PRIVATE hero_frontend hero_warnings GTest::gtest_main)
 
