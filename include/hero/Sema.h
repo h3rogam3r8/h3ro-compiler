@@ -7,39 +7,63 @@
 
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 namespace hero {
 
-// First half of semantic analysis: does every name actually refer to
-// something. Types and shapes are a separate pass, this one only cares
-// about names.
+// What sema works out about one expression.
+struct DtypeInfo {
+  // False means something already went wrong and got reported. Callers
+  // should go quiet instead of piling more errors on top.
+  bool known = false;
+
+  // A bare number literal that hasn't committed to a dtype yet. 
+  bool flexible = false;
+
+  TokenKind dtype = TokenKind::Unknown;
+};
+
+// Semantic analysis. Resolves names and works out dtypes. Shapes are
+// still to come.
 class Sema {
 public:
   explicit Sema(const SourceFile &file);
 
-  // False if anything was wrong. diags() says what.
-  bool check(const Program &program);
+  // Annotates the tree as it goes, so this takes a non const program.
+  // False if anything was wrong, diags() says what.
+  bool check(Program &program);
 
   const Diagnostics &diags() const { return diags_; }
 
 private:
-  void checkFunction(const Function &fn);
-  void checkBlock(const Block &block);
-  void checkExpr(const Expr &expr);
+  void checkFunction(Function &fn);
+  DtypeInfo checkBlock(Block &block);
+  DtypeInfo checkExpr(Expr &expr);
+  DtypeInfo computeExpr(Expr &expr);
+  DtypeInfo checkBinary(Expr &expr);
+  DtypeInfo checkCall(Expr &expr);
 
-  // Reports E002 and returns false if the name is taken.
-  bool declare(const std::string &name, SourceLoc loc);
+  bool declare(const std::string &name, SourceLoc loc, TokenKind dtype);
+
+  struct Binding {
+    SourceLoc loc;
+    TokenKind dtype = TokenKind::Unknown;
+  };
+
+  // What a user defined function looks like from the outside.
+  struct FnSig {
+    std::vector<TokenKind> params;
+    TokenKind returns = TokenKind::Unknown;
+  };
 
   Diagnostics diags_;
 
-  // Params and lets share one scope, since the spec says rebinding a name
-  // that's already in scope is an error either way. 
-  std::unordered_map<std::string, SourceLoc> scope_;
+  //Params and lets share one scope.
+  std::unordered_map<std::string, Binding> scope_;
 
-  // Functions seen so far. Filled in as we traverse, so a function can only
+  // Functions seen so far. Filled in as we walk, so a function can only
   // call ones defined above it. That's also what rules out recursion.
-  std::unordered_set<std::string> functions_;
+  std::unordered_map<std::string, FnSig> functions_;
 };
 
 }  // namespace hero

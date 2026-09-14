@@ -61,6 +61,10 @@ struct Expr {
   ExprPtr lhs;                // Unary (and now Cast) uses this as its only operand
   ExprPtr rhs;
   std::vector<ExprPtr> args;  // Call only
+
+  // Worked out by sema, not the parser. Unknown means either sema hasn't
+  // run or it gave up on this subtree.
+  TokenKind dtype = TokenKind::Unknown;
 };
 
 struct LetStmt {
