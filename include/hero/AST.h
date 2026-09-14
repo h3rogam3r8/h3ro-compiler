@@ -35,6 +35,7 @@ enum class ExprKind {
   Unary,
   Binary,
   Call,
+  Cast,
 };
 
 // One struct for every kind of expression instead of a class per kind.
@@ -51,7 +52,13 @@ struct Expr {
 
   bool boolValue = false;     // BoolLit only
   char op = 0;                // Unary and Binary, one of + - * /
-  ExprPtr lhs;                // Unary uses this as its only operand
+
+  // Cast only. The dtype being converted to, as the keyword token the
+  // lexer produced.
+  TokenKind castTo = TokenKind::KwF32;
+
+
+  ExprPtr lhs;                // Unary (and now Cast) uses this as its only operand
   ExprPtr rhs;
   std::vector<ExprPtr> args;  // Call only
 };

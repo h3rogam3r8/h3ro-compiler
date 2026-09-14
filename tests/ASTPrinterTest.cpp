@@ -108,3 +108,13 @@ TEST(ASTPrinter, BlankLineBetweenFunctions) {
             "  result\n"
             "    int 2\n");
 }
+
+TEST(ASTPrinter, CastShowsWhatItConvertsTo) {
+  EXPECT_EQ(printSource("fn f(x: f16) -> f32 { cast(x, f32) }"),
+            "fn f\n"
+            "  param x: f16\n"
+            "  returns f32\n"
+            "  result\n"
+            "    cast to f32\n"
+            "      name x\n");
+}

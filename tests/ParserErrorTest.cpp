@@ -122,3 +122,14 @@ TEST(ParserEdges, DeeplyNestedParens) {
   ASSERT_NE(program, nullptr);
   EXPECT_EQ(program->functions.size(), 1u);
 }
+
+TEST(ParserErrors, CastWithNoDtype)       { expectRejected("fn f(x: f16) -> f32 { cast(x) }"); }
+TEST(ParserErrors, CastToSomethingElse)   { expectRejected("fn f(x: f16) -> f32 { cast(x, y) }"); }
+TEST(ParserErrors, CastMissingOpenParen)  { expectRejected("fn f(x: f16) -> f32 { cast x, f32) }"); }
+TEST(ParserErrors, CastMissingCloseParen) { expectRejected("fn f(x: f16) -> f32 { cast(x, f32 }"); }
+
+// cast is a reserved word so this is the price of keeping it a keyword.
+TEST(ParserErrors, CannotNameAVariableCast) {
+  expectRejected("fn f() -> f32 { let cast = 1.0; cast }");
+}
+

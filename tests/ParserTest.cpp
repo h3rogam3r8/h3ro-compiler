@@ -20,6 +20,7 @@ void PrintTo(const ExprKind &kind, std::ostream *os) {
   case ExprKind::Unary:    *os << "unary";         break;
   case ExprKind::Binary:   *os << "binary";        break;
   case ExprKind::Call:     *os << "call";          break;
+  case ExprKind::Cast:     *os << "cast";          break;
   }
 }
 
@@ -229,4 +230,31 @@ TEST(Parser, ErrorPointsAtTheOffendingToken) {
             "bad.hero:1:29: error: expected ; but found identifier\n"
             "fn f() -> f32 { let a = 1.0 a }\n"
             "                            ^\n");
+}
+
+TEST(Parser, CastTakesADtypeAsItsSecondArgument) {
+  ExprPtr e = parseExpr("cast(x, f16)");
+  ASSERT_NE(e, nullptr);
+  ASSERT_EQ(e->kind, ExprKind::Cast);
+  EXPECT_EQ(e->castTo, TokenKind::KwF16);
+  ASSERT_NE(e->lhs, nullptr);
+  EXPECT_EQ(e->lhs->kind, ExprKind::Name);
+  EXPECT_EQ(e->lhs->text, "x");
+}
+
+TEST(Parser, CastCanHoldAWholeExpression) {
+  ExprPtr e = parseExpr("cast(matmul(x, w), f32)");
+  ASSERT_NE(e, nullptr);
+  ASSERT_EQ(e->kind, ExprKind::Cast);
+  EXPECT_EQ(e->castTo, TokenKind::KwF32);
+  ASSERT_NE(e->lhs, nullptr);
+  EXPECT_EQ(e->lhs->kind, ExprKind::Call);
+}
+
+TEST(Parser, CastNestsInsideOtherExpressions) {
+  ExprPtr e = parseExpr("cast(x, f32) + 1.0");
+  ASSERT_NE(e, nullptr);
+  ASSERT_EQ(e->kind, ExprKind::Binary);
+  ASSERT_NE(e->lhs, nullptr);
+  EXPECT_EQ(e->lhs->kind, ExprKind::Cast);
 }

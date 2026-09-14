@@ -1,0 +1,8 @@
+// Mixed precision. f16 going in and out, f32 in the middle where the
+// accumulation happens. Explicit casting b/c the language doesn't specify implicit conversion.
+fn mixed(x: tensor<[B, 128], f16>,
+         w: tensor<[128, 64], f16>) -> tensor<[B, 64], f16>
+{
+    let acc = cast(matmul(x, w), f32);
+    cast(relu(acc), f16)
+}

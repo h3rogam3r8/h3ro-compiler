@@ -323,6 +323,37 @@ ExprPtr Parser::parsePrimary() {
     return e;
   }
 
+    // cast has to be handled here because the lexer makes it a keyword, so
+  // the identifier branch below never sees it. It's also the only call in
+  // the language whose second argument is a type instead of a value.
+  if (check(TokenKind::KwCast)) {
+    advance();
+
+    if (!expect(TokenKind::LParen, "("))
+      return nullptr;
+
+    ExprPtr value = parseExpr();
+    if (!value)
+      return nullptr;
+
+    if (!expect(TokenKind::Comma, ","))
+      return nullptr;
+
+    if (!isDtype(peek().kind)) {
+      error(peek(), "expected a dtype to cast to");
+      return nullptr;
+    }
+    TokenKind target = advance().kind;
+
+    if (!expect(TokenKind::RParen, ")"))
+      return nullptr;
+
+    ExprPtr e = makeExpr(ExprKind::Cast, loc);
+    e->lhs = std::move(value);
+    e->castTo = target;
+    return e;
+  }
+
   if (check(TokenKind::LParen)) {
     advance();
     ExprPtr inner = parseExpr();
