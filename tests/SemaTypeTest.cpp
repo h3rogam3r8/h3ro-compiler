@@ -181,12 +181,6 @@ TEST(SemaShapes, CastKeepsTheShape) {
            "{ cast(a, f32) }");
 }
 
-// matmul has no shape rule yet so this should not invent an error.
-TEST(SemaShapes, MatmulShapeIsNotCheckedYet) {
-  expectOk("fn f(a: tensor<[2, 3], f32>, b: tensor<[9, 9], f32>) "
-           "-> tensor<[2, 9], f32> { matmul(a, b) }");
-}
-
 TEST(SemaShapes, TheExamplesStillPass) {
   expectOk("fn mlp(x:  tensor<[B, 768],    f16>,\n"
            "       w1: tensor<[768, 3072], f16>, b1: tensor<[3072], f16>,\n"
