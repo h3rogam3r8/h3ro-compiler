@@ -192,3 +192,95 @@ TEST(SemaShapes, TheExamplesStillPass) {
            "    matmul(a, w2) + b2\n"
            "}\n");
 }
+
+// ---- symbolic dimensions and the ops that need them ----
+
+TEST(SemaSymbolic, MatmulLinesUpInnerDims) {
+  expectOk("fn f(a: tensor<[2, 3], f32>, b: tensor<[3, 4], f32>) "
+           "-> tensor<[2, 4], f32> { matmul(a, b) }");
+}
+
+TEST(SemaSymbolic, MatmulInnerMismatchIsE008) {
+  expectCode("fn f(a: tensor<[2, 3], f32>, b: tensor<[9, 4], f32>) "
+             "-> tensor<[2, 4], f32> { matmul(a, b) }",
+             "E008");
+}
+
+TEST(SemaSymbolic, MatmulWorksWithASymbolicOuterDim) {
+  expectOk("fn f(a: tensor<[B, 128], f32>, b: tensor<[128, 64], f32>) "
+           "-> tensor<[B, 64], f32> { matmul(a, b) }");
+}
+
+TEST(SemaSymbolic, MatmulAcceptsAMatchingSymbolicInnerDim) {
+  expectOk("fn f(a: tensor<[4, K], f32>, b: tensor<[K, 4], f32>) "
+           "-> tensor<[4, 4], f32> { matmul(a, b) }");
+}
+
+// K and J might both be 128 at runtime, nothing in the program says so.
+TEST(SemaSymbolic, MatmulRejectsTwoDifferentSymbols) {
+  expectCode("fn f(a: tensor<[4, K], f32>, b: tensor<[J, 4], f32>) "
+             "-> tensor<[4, 4], f32> { matmul(a, b) }",
+             "E008");
+}
+
+TEST(SemaSymbolic, MatmulNeedsRankTwo) {
+  expectCode("fn f(a: tensor<[2], f32>, b: tensor<[2, 2], f32>) "
+             "-> tensor<[2, 2], f32> { matmul(a, b) }",
+             "E007");
+}
+
+TEST(SemaSymbolic, ReductionKeepsTheAxisAtOne) {
+  expectOk("fn f(a: tensor<[4, 3], f32>) -> tensor<[4, 1], f32> "
+           "{ sum(a, 1) }");
+  expectOk("fn f(a: tensor<[4, 3], f32>) -> tensor<[1, 3], f32> "
+           "{ max(a, 0) }");
+}
+
+TEST(SemaSymbolic, ReductionResultBroadcastsBackAgainstTheInput) {
+  expectOk("fn f(a: tensor<[4, 3], f32>) -> tensor<[4, 3], f32> "
+           "{ a - max(a, 1) }");
+}
+
+TEST(SemaSymbolic, AxisOutOfRangeIsE010) {
+  expectCode("fn f(a: tensor<[4, 3], f32>) -> tensor<[4, 1], f32> "
+             "{ sum(a, 9) }",
+             "E010");
+}
+
+TEST(SemaSymbolic, AxisHasToBeALiteral) {
+  expectCode("fn f(a: tensor<[4, 3], f32>, n: i32) -> tensor<[4, 1], f32> "
+             "{ sum(a, n) }",
+             "E010");
+  expectCode("fn f(a: tensor<[4, 3], f32>) -> tensor<[4, 1], f32> "
+             "{ sum(a, 1.5) }",
+             "E010");
+}
+
+TEST(SemaSymbolic, NegativeAxisIsRejected) {
+  expectCode("fn f(a: tensor<[4, 3], f32>) -> tensor<[4, 1], f32> "
+             "{ sum(a, -1) }",
+             "E010");
+}
+
+//Every example in examples/ now gets its shapes checked
+// end to end rather than falling through on an unknown.
+TEST(SemaSymbolic, SoftmaxExampleChecksOut) {
+  expectOk("fn softmax(x: tensor<[M, N], f32>) -> tensor<[M, N], f32> {\n"
+           "    let m = max(x, 1);\n"
+           "    let e = exp(x - m);\n"
+           "    e / sum(e, 1)\n"
+           "}\n");
+}
+
+TEST(SemaSymbolic, MlpExampleShapeChecksNow) {
+  expectCode("fn mlp(x:  tensor<[B, 768],    f16>,\n"
+             "       w1: tensor<[999, 3072], f16>, b1: tensor<[3072], f16>,\n"
+             "       w2: tensor<[3072, 768], f16>, b2: tensor<[768],  f16>)\n"
+             "    -> tensor<[B, 768], f16>\n"
+             "{\n"
+             "    let h = matmul(x, w1) + b1;\n"
+             "    let a = gelu(h);\n"
+             "    matmul(a, w2) + b2\n"
+             "}\n",
+             "E008");
+}
