@@ -48,6 +48,12 @@ jobs:
             ./build/tools/heroc/heroc "$f" > /dev/null
           done
 
+      # The README roadmap is generated from which test suites pass, so if
+      # it doesn't match the tests it's stale and needs regenerating.
+      - name: README roadmap is up to date
+        if: runner.os == 'Linux'
+        run: python3 scripts/roadmap.py --check --tests ./build/tests/hero_tests
+
   # Separate job because the sanitizer build is slower and I don't want it
   # holding up the normal one. Catches the memory bugs the tests can't see,
   # like something outliving the SourceFile it points at.
