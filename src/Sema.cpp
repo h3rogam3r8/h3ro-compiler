@@ -1,6 +1,7 @@
 #include "hero/Sema.h"
 
 #include <algorithm>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -108,6 +109,19 @@ std::string shapeToString(const std::vector<Dim> &dims) {
   }
   return out + "]";
 }
+
+// A name, an expression or a negative one all fail here.
+bool axisValue(const Expr &e, long long &out) {
+  if (e.kind != ExprKind::IntLit)
+    return false;
+  try {
+    out = std::stoll(e.text);
+  } catch (const std::out_of_range &) {
+    return false;
+  }
+  return true;
+}
+
 
 // Literals and anything rank 0. Known shape, no dims.
 TypeInfo scalar(bool flexible, TokenKind dtype) {
@@ -438,9 +452,55 @@ TypeInfo Sema::checkCall(Expr &expr) {
   out.known = true;
   out.dtype = result;
 
-  // Shape rules, for the builtins that have one written. transpose flips
-  // a rank 2 tensor, the elementwise ones keep whatever they were given.
-  if (expr.text == "transpose") {
+  // Shape rules per builtin.
+  if (expr.text == "matmul") {
+    if (args[0].shapeKnown && args[1].shapeKnown) {
+      if (args[0].dims.size() != 2 || args[1].dims.size() != 2) {
+        diags_.error(expr.loc, "E007",
+                     "matmul needs two rank 2 tensors, these are " +
+                         shapeToString(args[0].dims) + " and " +
+                         shapeToString(args[1].dims));
+        return {};
+      }
+
+      // [M, K] times [K, N]. The two Ks have to be provably the same.
+      if (!dimsMatch(args[0].dims[1], args[1].dims[0])) {
+        diags_.error(expr.loc, "E008",
+                     "matmul inner dimensions don't line up, " +
+                         shapeToString(args[0].dims) + " times " +
+                         shapeToString(args[1].dims));
+        return {};
+      }
+
+      out.shapeKnown = true;
+      out.dims = {args[0].dims[0], args[1].dims[1]};
+    }
+  } else if (expr.text == "sum" || expr.text == "max") {
+    long long axis = 0;
+    if (!axisValue(*expr.args[1], axis)) {
+      diags_.error(expr.args[1]->loc, "E010",
+                   "the axis has to be a plain integer, and the spec says "
+                   "no negative ones");
+      return {};
+    }
+
+    if (args[0].shapeKnown) {
+      if (axis < 0 || axis >= (long long)args[0].dims.size()) {
+        diags_.error(expr.args[1]->loc, "E010",
+                     "axis " + std::to_string(axis) +
+                         " is out of range for " +
+                         shapeToString(args[0].dims));
+        return {};
+      }
+
+      // Reductions keep the axis at size 1 instead of dropping it, which
+      // is what lets the result broadcast back against the input.
+      out.shapeKnown = true;
+      out.dims = args[0].dims;
+      out.dims[axis] = Dim{};
+      out.dims[axis].size = 1;
+    }
+  } else if (expr.text == "transpose") {
     if (args[0].shapeKnown) {
       if (args[0].dims.size() != 2) {
         diags_.error(expr.loc, "E007",

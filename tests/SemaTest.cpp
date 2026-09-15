@@ -97,8 +97,10 @@ TEST(Sema, NamesInOneFunctionAreNotVisibleInAnother) {
   EXPECT_NE(r.output.find("E001"), std::string::npos) << r.output;
 }
 
+// Fixed this test after code change issue #12
 TEST(Sema, BuiltinsResolve) {
-  Checked r = check("fn f(x: f32, w: f32) -> f32 { matmul(x, w) }");
+  Checked r = check("fn f(x: tensor<[2, 3], f32>, w: tensor<[3, 4], f32>) "
+                    "-> tensor<[2, 4], f32> { matmul(x, w) }");
   EXPECT_TRUE(r.ok) << r.output;
 }
 

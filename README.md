@@ -100,11 +100,11 @@ gets ticked when there are green tests behind it.
   - [x] AST printer, heroc --emit=ast
   - [x] Diagnostics with the source line and a caret
   - [x] Negative tests for input that should be rejected
-- [ ] **3. Types and shapes**
+- [x] **3. Types and shapes**
   - [x] Scopes and name resolution
   - [x] dtype rules, no implicit conversion
   - [x] Broadcasting
-  - [ ] Symbolic dimensions and matmul checking
+  - [x] Symbolic dimensions and matmul checking
 - [ ] **4. The hero MLIR dialect**
   - [ ] Ops and types in TableGen
   - [ ] AST lowered to IR
