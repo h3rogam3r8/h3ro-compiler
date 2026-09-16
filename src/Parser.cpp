@@ -67,22 +67,59 @@ bool Parser::expect(TokenKind kind, const char *what) {
   return false;
 }
 
-// No error recovery yet. The first problem stops everything, so a file
-// with two mistakes only reports one. Fine for now, needs fixing when
-// there's a real diagnostics system. Pretty easy to import from Alpha.
+// Past this many the output is too clunky
+static const size_t kMaxErrors = 20;
+
 std::unique_ptr<Program> Parser::parse() {
   auto program = std::make_unique<Program>();
 
   while (!check(TokenKind::Eof)) {
+    if (diags_.count() >= kMaxErrors) {
+      diags_.error(peek().loc, "too many errors, giving up here");
+      break;
+    }
+
     Function fn;
-    if (!parseFunction(fn))
-      return nullptr;
-    program->functions.push_back(std::move(fn));
+    if (parseFunction(fn)) {
+      program->functions.push_back(std::move(fn));
+      continue;
+    }
+
+    // Broken function. Skip to the next fn and keep going, otherwise one
+    // mistake hides everything after it.
+    syncToFunction();
   }
 
   if (diags_.hasErrors())
     return nullptr;
   return program;
+}
+
+void Parser::syncToFunction() {
+  // Always eat one token first, or a function that fails on the fn
+  // keyword itself would leave us spinning on the same spot.
+  if (!check(TokenKind::Eof))
+    advance();
+
+  while (!check(TokenKind::Eof) && !check(TokenKind::KwFn))
+    advance();
+}
+
+void Parser::syncToStatement() {
+  while (!check(TokenKind::Eof) && !check(TokenKind::RBrace)) {
+    // A semicolon ends the broken statement, so step over it and carry on
+    // from whatever comes next.
+    if (check(TokenKind::Semicolon)) {
+      advance();
+      return;
+    }
+
+    // A let starts a new statement, so stop here without eating it.
+    if (check(TokenKind::KwLet))
+      return;
+
+    advance();
+  }
 }
 
 bool Parser::parseFunction(Function &out) {
@@ -198,36 +235,47 @@ bool Parser::parseType(Type &out) {
   return expect(TokenKind::Greater, ">");
 }
 
+bool Parser::parseLet(Block &out) {
+  LetStmt stmt;
+  stmt.loc = peek().loc;
+  advance();  // let
+
+  if (!check(TokenKind::Identifier)) {
+    error(peek(), "expected a name after let");
+    return false;
+  }
+  stmt.name = advance().text;
+
+  if (!expect(TokenKind::Equals, "="))
+    return false;
+
+  stmt.value = parseExpr();
+  if (!stmt.value)
+    return false;
+
+  if (!expect(TokenKind::Semicolon, ";"))
+    return false;
+
+  out.lets.push_back(std::move(stmt));
+  return true;
+}
+
 bool Parser::parseBlock(Block &out) {
   if (!expect(TokenKind::LBrace, "{"))
     return false;
 
+  bool ok = true;
+
   while (check(TokenKind::KwLet)) {
-    LetStmt stmt;
-    stmt.loc = peek().loc;
-    advance();  // let
-
-    if (!check(TokenKind::Identifier)) {
-      error(peek(), "expected a name after let");
-      return false;
+    // parseLet always eats the let keyword before it can fail.
+    if (!parseLet(out)) {
+      ok = false;
+      syncToStatement();
     }
-    stmt.name = advance().text;
-
-    if (!expect(TokenKind::Equals, "="))
-      return false;
-
-    stmt.value = parseExpr();
-    if (!stmt.value)
-      return false;
-
-    if (!expect(TokenKind::Semicolon, ";"))
-      return false;
-
-    out.lets.push_back(std::move(stmt));
   }
-
   if (check(TokenKind::RBrace)) {
-    error(peek(), "block needs a result expression at the end");
+    if (ok)
+      error(peek(), "block needs a result expression at the end");
     return false;
   }
 
@@ -235,7 +283,7 @@ bool Parser::parseBlock(Block &out) {
   if (!out.result)
     return false;
 
-  return expect(TokenKind::RBrace, "}");
+  return expect(TokenKind::RBrace, "}") && ok;
 }
 
 ExprPtr Parser::parseExpr() { return parseAdd(); }

@@ -35,9 +35,13 @@ private:
 
   // One function per grammar rule, same names as the spec uses.
   bool parseFunction(Function &out);
+  bool parseLet(Block &out);
   bool parseParam(Param &out);
   bool parseType(Type &out);
   bool parseBlock(Block &out);
+
+  void syncToFunction();
+  void syncToStatement();
 
   ExprPtr parseExpr();
   ExprPtr parseAdd();

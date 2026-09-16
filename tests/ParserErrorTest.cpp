@@ -64,11 +64,54 @@ TEST(ParserErrors, FunctionNamedAfterADtypeIsRejected) {
   expectRejected("fn bool() -> i32 { 1 }");
 }
 
-TEST(ParserErrors, ReportsTheFirstErrorOnly) {
+// Two missing semicolons, two errors. Before recovery this only reported
+// the first one.
+TEST(ParserErrors, ReportsEveryMissingSemicolon) {
   SourceFile file("bad.hero", "fn f() -> f32 { let a = 1.0 let b = 2.0 a }");
   Parser parser(file);
   parser.parse();
+  EXPECT_EQ(parser.diags().count(), 2u);
+}
+
+TEST(ParserErrors, KeepsGoingIntoTheNextFunction) {
+  SourceFile file("bad.hero",
+                  "fn a() -> { 1.0 } fn b() -> { 2.0 } fn c() -> { 3.0 }");
+  Parser parser(file);
+  parser.parse();
+  EXPECT_EQ(parser.diags().count(), 3u);
+}
+
+TEST(ParserErrors, AGoodFunctionAfterABrokenOneStillParses) {
+  SourceFile file("bad.hero", "fn a() -> { 1.0 } fn b() -> f32 { 2.0 }");
+  Parser parser(file);
+  EXPECT_EQ(parser.parse(), nullptr);
   EXPECT_EQ(parser.diags().count(), 1u);
+}
+
+// Nothing here should go on for forever. If recovery fails to make progress
+// this test hangs instead of failing. Will solve later
+TEST(ParserErrors, RecoveryAlwaysMakesProgress) {
+  const char *nasty[] = {
+      "fn", "fn fn fn", "{{{{", "}}}}", "let let let",
+      "fn f() -> f32 { let let let }", "$$$$", "fn f( ( ( (",
+  };
+
+  for (const char *source : nasty) {
+    SourceFile file("bad.hero", source);
+    Parser parser(file);
+    EXPECT_EQ(parser.parse(), nullptr) << source;
+  }
+}
+
+TEST(ParserErrors, StopsAfterTooManyErrors) {
+  std::string source;
+  for (int i = 0; i < 100; i++)
+    source += "fn f" + std::to_string(i) + "() -> { 1.0 } ";
+
+  SourceFile file("bad.hero", source);
+  Parser parser(file);
+  parser.parse();
+  EXPECT_LE(parser.diags().count(), 25u);
 }
 
 TEST(ParserErrors, SecondFunctionBeingBrokenStillFails) {
