@@ -28,9 +28,27 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-      # HERO_WERROR only applies to my own targets, googletest is left
-      # alone. Means a warning fails the build here but not on my laptop.
-      - name: Configure
+      # Linux only. Homebrew's llvm is a big download and the macOS job is
+      # here to catch clang complaining about the front end, not to build
+      #the dialect twice. mlir-20-tools is a separate package that
+      # libmlir-20-dev does not depend on and the cmake files reference
+      # mlir-tblgen and friends by absolute path
+      - name: Install MLIR (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libmlir-20-dev mlir-20-tools llvm-20-dev
+
+      # HERO_WERROR only applies to my own targets, googletest and MLIR are
+      # left alone. Means a warning fails the build here but not on my laptop.
+      - name: Configure with MLIR (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DHERO_WERROR=ON
+          -DHERO_ENABLE_MLIR=ON
+          -DMLIR_DIR=/usr/lib/llvm-20/lib/cmake/mlir
+          -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm
+
+      - name: Configure without MLIR (macOS)
+        if: runner.os == 'macOS'
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DHERO_WERROR=ON
 
       - name: Build
@@ -48,11 +66,13 @@ jobs:
             ./build/tools/heroc/heroc "$f" > /dev/null
           done
 
-      # The README roadmap is generated from which test suites pass, so if
-      # it doesn't match the tests it's stale and needs regenerating.
+      # The README roadmap is generated from what ctest says passes, so if
+      # it doesn't match the tests it's stale and needs regenerating. Linux
+      # only because macOS builds without MLIR and the dialect box would
+      # come out unticked there even when the README is right.
       - name: README roadmap is up to date
         if: runner.os == 'Linux'
-        run: python3 scripts/roadmap.py --check --tests ./build/tests/hero_tests
+        run: python3 scripts/roadmap.py --check --build build
 
   # Separate job because the sanitizer build is slower and I don't want it
   # holding up the normal one. Catches the memory bugs the tests can't see,
