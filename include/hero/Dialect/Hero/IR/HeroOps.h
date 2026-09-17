@@ -8,6 +8,9 @@
 // Don't remove, breaks things
 #include "mlir/IR/OpImplementation.h"
 
+// Older LLVM specific fix
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+
 #define GET_OP_CLASSES
 #include "hero/Dialect/Hero/IR/HeroOps.h.inc"
 
