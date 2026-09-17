@@ -30,10 +30,12 @@ jobs:
 
       # Linux only. Homebrew's llvm is a big download and the macOS job is
       # here to catch clang complaining about the front end, not to build
-      # the dialect twice.
+      #the dialect twice. mlir-20-tools is a separate package that
+      # libmlir-20-dev does not depend on and the cmake files reference
+      # mlir-tblgen and friends by absolute path
       - name: Install MLIR (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y libmlir-20-dev llvm-20-dev
+        run: sudo apt-get install -y libmlir-20-dev mlir-20-tools llvm-20-dev
 
       # HERO_WERROR only applies to my own targets, googletest and MLIR are
       # left alone. Means a warning fails the build here but not on my laptop.
