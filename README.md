@@ -106,7 +106,7 @@ gets ticked when there are green tests behind it.
   - [x] Broadcasting
   - [x] Symbolic dimensions and matmul checking
 - [ ] **4. The hero MLIR dialect**
-  - [ ] Ops and types in TableGen
+  - [x] Ops and types in TableGen
   - [ ] AST lowered to IR
   - [ ] hero-opt with a pass registry
 - [ ] **5. Graph optimization**

@@ -2,15 +2,17 @@
 """Rewrites the roadmap checkboxes in the README from the test results.
 A box is ticked when the test suite that proves it exists and passes. So
 the README can't claim something works unless there are green tests for it. 
+Point it at the MLIR build with --build build-mlir to get the dialect boxes
+as well, otherwise those stay unticked.
 """
 
 import argparse
-import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from xml.etree import ElementTree
 
 # Things with no test suite behind them, like writing the spec. Nothing to run
 DONE = "__done__"
@@ -25,20 +27,20 @@ ROADMAP = [
         ("Address and undefined behaviour sanitizer job", DONE),
     ]),
     ("Front end", [
-        ("Lexer with source locations", "Lexer"),
-        ("Recursive descent parser and AST", "Parser"),
-        ("AST printer, heroc --emit=ast", "ASTPrinter"),
-        ("Diagnostics with the source line and a caret", "Diagnostics"),
-        ("Negative tests for input that should be rejected", "ParserErrors"),
+        ("Lexer with source locations", "Lexer."),
+        ("Recursive descent parser and AST", "Parser."),
+        ("AST printer, heroc --emit=ast", "ASTPrinter."),
+        ("Diagnostics with the source line and a caret", "Diagnostics."),
+        ("Negative tests for input that should be rejected", "ParserErrors."),
     ]),
     ("Types and shapes", [
-        ("Scopes and name resolution", "Sema"),
-        ("dtype rules, no implicit conversion", "SemaTypes"),
-        ("Broadcasting", "SemaShapes"),
-        ("Symbolic dimensions and matmul checking", "SemaSymbolic"),
+        ("Scopes and name resolution", "Sema."),
+        ("dtype rules, no implicit conversion", "SemaTypes."),
+        ("Broadcasting", "SemaShapes."),
+        ("Symbolic dimensions and matmul checking", "SemaSymbolic."),
     ]),
     ("The hero MLIR dialect", [
-        ("Ops and types in TableGen", None),
+        ("Ops and types in TableGen", "mlir/Dialect/Hero"),
         ("AST lowered to IR", None),
         ("hero-opt with a pass registry", None),
     ]),
@@ -93,25 +95,33 @@ START = "<!-- roadmap:start -->"
 END = "<!-- roadmap:end -->"
 
 
-def passing_suites(test_binary):
-    """Suite names that ran with zero failures."""
+def test_results(build_dir):
+    """Every ctest test name mapped to whether it passed. ctest covers both the googletest ones, 
+    which come out as Suite.Name, and the MLIR ones, which are named mlir/path/to/file. Going through
+    ctest instead of the gtest binary means one mechanism for both.
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, "results.json")
-        subprocess.run([test_binary, "--gtest_output=json:" + out],
+        report = os.path.join(tmp, "results.xml")
+        subprocess.run(["ctest", "--test-dir", build_dir,
+                        "--output-junit", report],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        check=False)
-        if not os.path.exists(out):
-            sys.exit("could not get results out of " + test_binary)
+        if not os.path.exists(report):
+            sys.exit("ctest produced no report, is " + build_dir + " built?")
 
-        with open(out) as f:
-            results = json.load(f)
+        tree = ElementTree.parse(report)
 
-    good = set()
-    for suite in results.get("testsuites", []):
-        if suite.get("failures", 0) == 0 and suite.get("errors", 0) == 0:
-            good.add(suite["name"])
-    return good
+    results = {}
+    for case in tree.iter("testcase"):
+        failed = case.find("failure") is not None or case.get("status") == "fail"
+        results[case.get("name")] = not failed
+    return results
 
+
+def prefix_passed(results, prefix):
+    """Did anything matching this prefix run, and did all of it pass?"""
+    matched = [ok for name, ok in results.items() if name.startswith(prefix)]
+    return bool(matched) and all(matched)
 
 def render(suites):
     lines = []
@@ -125,7 +135,7 @@ def render(suites):
             elif proof is None:
                 done = False
             else:
-                done = proof in suites
+                done = prefix_passed(suites, proof)
 
             done_count += done
             rendered.append("  - [%s] %s" % ("x" if done else " ", label))
@@ -142,14 +152,15 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if the README is out of date instead of "
                          "rewriting it")
-    ap.add_argument("--tests", default="build/tests/hero_tests")
+    ap.add_argument("--build", default="build",
+                    help="a configured and built cmake directory")
     ap.add_argument("--readme", default="README.md")
     args = ap.parse_args()
 
-    if not os.path.exists(args.tests):
-        sys.exit("no test binary at " + args.tests + ", build first")
+    if not os.path.isdir(args.build):
+        sys.exit("no build directory at " + args.build + ", configure first")
 
-    body = render(passing_suites(args.tests))
+    body = render(test_results(args.build))
 
     with open(args.readme) as f:
         readme = f.read()
