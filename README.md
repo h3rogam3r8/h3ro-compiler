@@ -6,9 +6,7 @@ Hero is a small tensor language and the compiler that turns it into fast code.
 It's built on MLIR and LLVM, and it targets three things: a CPU, an NVIDIA GPU,
 and a made-up accelerator called Anvil (get it?) that I also have to write a simulator for.
 
-**Where it's at:** the front end works. Hero source gets lexed, parsed, and
-printed as a tree, with error messages that point at the right token. No type
-checking yet, and MLIR hasn't shown up at all. Roadmap below.
+**Where it's at:** Roadmap below.
 
 ## Why
 
